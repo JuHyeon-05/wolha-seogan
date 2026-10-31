@@ -1,13 +1,14 @@
 'use strict';
 const $=id=>document.getElementById(id);
 const STORAGE='wolha-seogan-v2';
-const defaults={penName:'',siteName:'월하서간',headline:'그대에게,\n아직 닿지 못한 말.',intro:'계절이 몇 번을 지나도 바래지 않는 마음이 있습니다.\n오래된 서고 한켠, 접어 둔 그리움을 펼쳐 봅니다.',theme:'day',fontSize:16,spacing:2.3};
+const defaults={penName:'',siteName:'월하서간',headline:'다시 만날 수 없는\n그대에게.',intro:'시월의 마지막 밤, 그리운 이름을 불러 봅니다.\n기록의 신 무명이, 끝내 닿지 못한 마음을 서고에 남깁니다.',theme:'day',fontSize:16,spacing:2.3};
 const seasonNames={spring:'봄',summer:'여름',autumn:'가을',winter:'겨울'};
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const idPattern=/^[a-zA-Z0-9_-]{1,100}$/;
-function settingsFrom(value={}){const s={...defaults};if(!value||typeof value!=='object')return s;for(const [key,max] of Object.entries({penName:40,siteName:20,headline:80,intro:240})){if(typeof value[key]==='string'&&(key==='penName'||value[key].trim()))s[key]=value[key].slice(0,max)}if(['day','night','system'].includes(value.theme))s.theme=value.theme;if([14,16,18,20].includes(Number(value.fontSize)))s.fontSize=Number(value.fontSize);if([1.9,2.3,2.7].includes(Number(value.spacing)))s.spacing=Number(value.spacing);return s}
+function settingsFrom(value={}){const s={...defaults};if(!value||typeof value!=='object')return s;for(const [key,max] of Object.entries({penName:40,siteName:20,headline:80,intro:240})){if(typeof value[key]==='string'&&(key==='penName'||value[key].trim()))s[key]=(key==='headline'&&value[key]==='그대에게,\n아직 닿지 못한 말.'?defaults.headline:key==='intro'&&value[key]==='계절이 몇 번을 지나도 바래지 않는 마음이 있습니다.\n오래된 서고 한켠, 접어 둔 그리움을 펼쳐 봅니다.'?defaults.intro:value[key]).slice(0,max)}if(['day','night','system'].includes(value.theme))s.theme=value.theme;if([14,16,18,20].includes(Number(value.fontSize)))s.fontSize=Number(value.fontSize);if([1.9,2.3,2.7].includes(Number(value.spacing)))s.spacing=Number(value.spacing);return s}
 function recordFrom(value,draft=false){if(!value||typeof value!=='object'||typeof value.id!=='string'||typeof value.threadId!=='string'||!idPattern.test(value.id)||!idPattern.test(value.threadId))throw new Error('편지 번호가 올바르지 않습니다.');const limits={title:80,sender:40,recipient:40,body:6000};const record={id:value.id,threadId:value.threadId};for(const [key,max] of Object.entries(limits)){if(typeof value[key]!=='string'||value[key].length>max||(!draft&&!value[key].trim()))throw new Error('편지의 제목, 이름 또는 내용이 올바르지 않습니다.');record[key]=value[key]}if(!Object.hasOwn(seasonNames,value.season))throw new Error('편지의 계절을 확인해 주세요.');record.season=value.season;if(typeof value.createdAt!=='string'||!Number.isFinite(Date.parse(value.createdAt)))throw new Error('편지의 날짜가 올바르지 않습니다.');record.createdAt=value.createdAt;record.updatedAt=typeof value.updatedAt==='string'&&Number.isFinite(Date.parse(value.updatedAt))?value.updatedAt:value.createdAt;if(value.parentId){if(typeof value.parentId!=='string'||!idPattern.test(value.parentId))throw new Error('앞선 편지의 번호가 올바르지 않습니다.');record.parentId=value.parentId;record.parentTitle=typeof value.parentTitle==='string'?value.parentTitle.slice(0,80):''}record.revision=Number.isSafeInteger(value.revision)&&value.revision>=0?value.revision:0;
  if(draft&&value.editingId){if(typeof value.editingId!=='string'||!idPattern.test(value.editingId))throw new Error('수정 중인 편지 번호가 올바르지 않습니다.');record.editingId=value.editingId;record.baseRevision=Number.isSafeInteger(value.baseRevision)&&value.baseRevision>=0?value.baseRevision:0}
+ if(typeof value.entrustedAt==='string'&&Number.isFinite(Date.parse(value.entrustedAt)))record.entrustedAt=value.entrustedAt;
  return record}
 function readStored(){let old={};try{old=JSON.parse(localStorage.getItem('wolha-seogan-v1')||'{}')||{}}catch{}let result={version:2,settings:{...defaults,theme:old.night?'night':'day'},mail:[],drafts:[],saved:Array.isArray(old.saved)?old.saved:[],progress:old.progress&&typeof old.progress==='object'?old.progress:{}};try{const data=JSON.parse(localStorage.getItem(STORAGE)||'null');if(data&&data.version===2){result.settings=settingsFrom(data.settings);for(const kind of ['mail','drafts']){if(Array.isArray(data[kind]))for(const value of data[kind]){try{const record=recordFrom(value,kind==='drafts');if(kind==='mail')record.direction=value.direction==='received'?'received':'written';if(!result[kind].some(l=>l.id===record.id))result[kind].push(record)}catch{}}}result.saved=Array.isArray(data.saved)?data.saved.filter(id=>typeof id==='string'&&idPattern.test(id)):[];result.progress=data.progress&&typeof data.progress==='object'?data.progress:{}}}catch{}return result}
 let state=readStored();let filter='all',season='all',current=null,page=0,opener=null,composing=null,draftTimer,toastTimer,sharing=false,sealing=false,pendingDeletion=null;
@@ -33,7 +34,7 @@ function renderCards(){
  $('letters').replaceChildren();$('empty').replaceChildren();$('empty').classList.toggle('hidden',list.length>0);
  if(!list.length){
   const message=document.createElement('span');
-  message.textContent=season!=='all'?'이 계절에는 아직 편지가 놓이지 않았습니다.':filter==='received'?'아직 받은 편지가 없습니다. 상대가 보낸 편지 링크를 열어 서고에 보관해 주세요.':filter==='saved'?'아직 책갈피를 끼운 편지가 없습니다. 간직하고 싶은 편지에 책갈피를 남겨 보세요.':filter==='drafts'?'쓰다가 접어 둔 편지가 없습니다. 마음이 가는 이에게 첫 문장을 적어 보세요.':'아직 서고에 편지가 없습니다. 당신의 첫 편지를 놓아 주세요.';
+  message.textContent=season!=='all'?'이 계절에는 아직 편지가 놓이지 않았습니다.':filter==='received'?'아직 도착한 서간이 없습니다. 누군가 전한 편지 링크를 열어 이곳에 간직할 수 있습니다.':filter==='saved'?'아직 책갈피를 끼운 편지가 없습니다. 간직하고 싶은 편지에 책갈피를 남겨 보세요.':filter==='drafts'?'쓰다가 접어 둔 편지가 없습니다. 마음이 가는 이에게 첫 문장을 적어 보세요.':'아직 이 서고에 놓인 편지가 없습니다. 그리운 이름에 첫 마음을 남겨 주세요.';
   $('empty').append(message,document.createElement('br'));
   const action=document.createElement('button');action.textContent='편지 한 통 쓰기 ↗';action.addEventListener('click',()=>openCompose());$('empty').append(action);
  }
@@ -41,8 +42,8 @@ function renderCards(){
   const item=document.createElement('article');item.className='letter-item';
   const card=document.createElement('button');card.className='letter-card'+(letter.draft?' draft-card':'');
   card.setAttribute('aria-label',(letter.title||'제목 없는 편지')+(letter.draft?' 이어 쓰기':' 편지 펼치기'));
-  const caption=letter.draft?(letter.editingId?'수정 중인 편지':'쓰던 편지'):letter.direction==='received'?'받은 편지':'쓴 편지';
-  card.innerHTML=`<div class="letter-art" aria-hidden="true"><svg class="art-sprig" viewBox="0 0 100 120"><use href="#sprig"/></svg><div class="envelope"><span class="env-title">${esc((letter.title||'제목 없는 편지').slice(0,14))}</span><span class="env-seal">${letter.draft?'草':'緘'}</span></div></div><div class="card-top"><span>${caption} · ${esc(letter.seasonName)}</span><span>${state.saved.includes(letter.id)?'책갈피 ◆':esc(shortDate(letter.updatedAt))}</span></div><h3 class="card-title">${esc(letter.title||'제목 없는 편지')}</h3><p class="card-excerpt">${esc(letter.excerpt||'아직 적지 못한 마음이 기다립니다.')}</p><div class="card-bottom"><span>${esc(letter.sender||'이름 없는 이')} → ${esc(letter.recipient||'그대')}</span><span>${letter.draft?'이어서 쓰기':Number.isInteger(state.progress[letter.id])?'이어서 읽기':'편지 읽기'} ↗</span></div>`;
+  const caption=letter.draft?(letter.editingId?'수정 중인 편지':'쓰던 편지'):letter.direction==='received'?'받은 편지':letter.entrustedAt?'무명에게 맡긴 편지':'쓴 편지';
+  card.innerHTML=`<div class="letter-art" aria-hidden="true"><svg class="art-sprig" viewBox="0 0 100 120"><use href="#sprig"/></svg><div class="envelope"><span class="env-title">${esc((letter.title||'제목 없는 편지').slice(0,14))}</span><span class="env-seal">${letter.draft?'草':letter.entrustedAt?'記':'緘'}</span></div></div><div class="card-top"><span>${caption} · ${esc(letter.seasonName)}</span><span>${state.saved.includes(letter.id)?'책갈피 ◆':esc(shortDate(letter.updatedAt))}</span></div><h3 class="card-title">${esc(letter.title||'제목 없는 편지')}</h3><p class="card-excerpt">${esc(letter.excerpt||'아직 적지 못한 마음이 기다립니다.')}</p><div class="card-bottom"><span>${esc(letter.sender||'이름 없는 이')} → ${esc(letter.recipient||'그대')}</span><span>${letter.draft?'이어서 쓰기':Number.isInteger(state.progress[letter.id])?'이어서 읽기':'편지 읽기'} ↗</span></div>`;
   card.addEventListener('click',()=>letter.draft?openCompose({draft:state.drafts.find(d=>d.id===letter.id)}):openLetter(letter,card));item.append(card);
   if(letter.draft||letter.direction==='written'){
    const actions=document.createElement('div');actions.className='letter-item-actions';
@@ -53,10 +54,10 @@ function renderCards(){
   }
   $('letters').append(item);
  }
- $('first-letter').innerHTML=personal.length?'편지 펼치기 <span class="arrow" aria-hidden="true">↗</span>':'첫 편지 쓰기 <span class="arrow" aria-hidden="true">↗</span>';
+ $('first-letter').innerHTML=personal.length?'남긴 마음 펼치기 <span class="arrow" aria-hidden="true">↗</span>':'그리운 이에게 쓰기 <span class="arrow" aria-hidden="true">↗</span>';
 }
 function isKept(letter=current){return !letter._update&&!letter._snapshot&&state.mail.some(l=>l.id===letter.id)}
-function renderPage(){if(!current)return;const isExternal=!isKept();$('letter-number').textContent=(current._snapshot?'이전 링크의 편지':isExternal?'도착한 편지':current.direction==='received'?'받은 편지':'쓴 편지')+' · '+current.seasonName;$('letter-title').textContent=current.title;$('letter-date').textContent=current.date;$('letter-correspondents').textContent=current.sender+' → '+current.recipient;$('salutation').textContent=page===0?current.to:current.recipient+'에게, 계속하여.';const ownGreeting=page===0&&current.pages[0].trimStart().split(String.fromCharCode(10))[0].includes(current.recipient+'에게');$('salutation').classList.toggle('hidden',ownGreeting);$('letter-content').textContent=current.pages[page];$('signature').textContent=page===current.pages.length-1?current.from:'';$('previous').disabled=page===0;$('next').textContent=page===current.pages.length-1?'편지 접기 ↗':'다음 장으로 →';$('page-count').textContent=`${String(page+1).padStart(2,'0')} / ${String(current.pages.length).padStart(2,'0')}`;$('page-dots').innerHTML=current.pages.map((_,i)=>`<span class="page-dot ${i===page?'current':''}"></span>`).join('');const marked=state.saved.includes(current.id);$('bookmark').setAttribute('aria-pressed',String(marked));$('bookmark').textContent=marked?'책갈피 빼기 ◆':'책갈피 끼우기 +';$('keep-letter').classList.toggle('hidden',!isExternal||!!current._snapshot);$('keep-letter').textContent=current._update?'수정본으로 보관':'내 서고에 보관';$('bookmark').classList.toggle('hidden',!!current._snapshot);$('reader-manage').classList.toggle('hidden',isExternal||current.direction!=='written');$('thread-list').replaceChildren();const related=letters().filter(l=>l.id!==current.id&&l.threadId===current.threadId).sort((a,b)=>(a.createdAt||'').localeCompare(b.createdAt||''));for(const other of related){const button=document.createElement('button');button.textContent=`${other.sender} → ${other.recipient} · ${other.title} ↗`;button.addEventListener('click',()=>{current=other;page=0;renderPage()});$('thread-list').append(button)}$('thread-section').classList.toggle('hidden',!related.length);state.progress[current.id]=page;if(isKept())persist();document.querySelector('.reading-body').scrollTop=0}
+function renderPage(){if(!current)return;const isExternal=!isKept();$('letter-number').textContent=(current._snapshot?'이전 링크의 편지':isExternal?'도착한 편지':current.direction==='received'?'받은 편지':'쓴 편지')+' · '+current.seasonName;$('letter-title').textContent=current.title;$('letter-date').textContent=current.date;$('letter-correspondents').textContent=current.sender+' → '+current.recipient;$('salutation').textContent=page===0?current.to:current.recipient+'에게, 계속하여.';const ownGreeting=page===0&&current.pages[0].trimStart().split(String.fromCharCode(10))[0].includes(current.recipient+'에게');$('salutation').classList.toggle('hidden',ownGreeting);$('letter-content').textContent=current.pages[page];$('signature').textContent=page===current.pages.length-1?current.from:'';$('previous').disabled=page===0;$('next').textContent=page===current.pages.length-1?'편지 접기 ↗':'다음 장으로 →';$('page-count').textContent=`${String(page+1).padStart(2,'0')} / ${String(current.pages.length).padStart(2,'0')}`;$('page-dots').innerHTML=current.pages.map((_,i)=>`<span class="page-dot ${i===page?'current':''}"></span>`).join('');const marked=state.saved.includes(current.id);$('bookmark').setAttribute('aria-pressed',String(marked));$('bookmark').textContent=marked?'책갈피 빼기 ◆':'책갈피 끼우기 +';$('keep-letter').classList.toggle('hidden',!isExternal||!!current._snapshot);$('keep-letter').textContent=current._update?'수정본으로 보관':'내 서고에 보관';$('bookmark').classList.toggle('hidden',!!current._snapshot);$('reader-manage').classList.toggle('hidden',isExternal||current.direction!=='written');$('thread-list').replaceChildren();const related=letters().filter(l=>l.id!==current.id&&l.threadId===current.threadId).sort((a,b)=>(a.createdAt||'').localeCompare(b.createdAt||''));for(const other of related){const button=document.createElement('button');button.textContent=`${other.sender} → ${other.recipient} · ${other.title} ↗`;button.addEventListener('click',()=>{current=other;page=0;renderPage()});$('thread-list').append(button)}$('thread-section').classList.toggle('hidden',!related.length);state.progress[current.id]=page;if(isKept())persist();renderKeeper();document.querySelector('.reading-body').scrollTop=0}
 function openLetter(letter,source){opener=source||document.activeElement;current=letter;const last=state.progress[letter.id];page=Number.isInteger(last)?Math.max(0,Math.min(last,letter.pages.length-1)):0;renderPage();showDialog($('reader-dialog'));$('letter-title').focus()}
 function keepIncoming(){
  if(!current||isKept()||current._snapshot)return true;
@@ -67,7 +68,7 @@ function keepIncoming(){
 function clearIncomingHash(){if(location.hash.startsWith('#letter='))history.replaceState(null,'',location.pathname+location.search+'#archive')}
 function closeReader(){$('reader-dialog').close()}
 function renderSettings(){const s=state.settings;$('setting-name').value=s.penName;$('setting-site').value=s.siteName;$('setting-headline').value=s.headline;$('setting-intro').value=s.intro;$('setting-theme').value=s.theme;$('setting-font').value=s.fontSize;$('setting-spacing').value=s.spacing}
-function applySettings(){const s=state.settings;document.querySelector('.brand-name').textContent=s.siteName;document.querySelector('.brand').setAttribute('aria-label',s.siteName+' 처음으로');document.title=s.siteName+' — 달빛 아래 남긴 편지';document.querySelector('.intro').textContent=s.intro;if(s.headline===defaults.headline){$('hero-title').innerHTML='그대에게,<br>아직 <span>닿지 못한 말.</span>'}else{$('hero-title').replaceChildren();const lines=s.headline.split('\n');lines.forEach((line,i)=>{if(i)$('hero-title').append(document.createElement('br'));const node=document.createElement(i===lines.length-1?'span':'span');node.textContent=line;if(i!==lines.length-1)node.style.color='inherit';$('hero-title').append(node)})}document.documentElement.style.setProperty('--reader-font-size',s.fontSize+'px');document.documentElement.style.setProperty('--reader-line-height',s.spacing);const dark=s.theme==='night'||s.theme==='system'&&systemTheme.matches;document.body.classList.toggle('night',dark);$('lamp').setAttribute('aria-pressed',String(dark));$('lamp').setAttribute('aria-label',dark?'낮의 서고로 바꾸기':'밤의 서고로 바꾸기');$('lamp').querySelector('span').textContent=dark?'낮의 서고':'밤의 서고';renderCards()}
+function applySettings(){const s=state.settings;document.querySelector('.brand-name').textContent=s.siteName;document.querySelector('.brand').setAttribute('aria-label',s.siteName+' 처음으로');document.title=s.siteName+' — 무명의 서고';document.querySelector('.intro').textContent=s.intro;if(s.headline===defaults.headline){$('hero-title').innerHTML='다시 만날 수 없는<br><span>그대에게.</span>'}else{$('hero-title').replaceChildren();const lines=s.headline.split('\n');lines.forEach((line,i)=>{if(i)$('hero-title').append(document.createElement('br'));const node=document.createElement(i===lines.length-1?'span':'span');node.textContent=line;if(i!==lines.length-1)node.style.color='inherit';$('hero-title').append(node)})}document.documentElement.style.setProperty('--reader-font-size',s.fontSize+'px');document.documentElement.style.setProperty('--reader-line-height',s.spacing);const dark=s.theme==='night'||s.theme==='system'&&systemTheme.matches;document.body.classList.toggle('night',dark);$('lamp').setAttribute('aria-pressed',String(dark));$('lamp').setAttribute('aria-label',dark?'낮의 서고로 바꾸기':'밤의 서고로 바꾸기');$('lamp').querySelector('span').textContent=dark?'낮의 서고':'밤의 서고';renderCards()}
 function currentSeason(){return ['winter','winter','spring','spring','spring','summer','summer','summer','autumn','autumn','autumn','winter'][new Date().getMonth()]}
 function openCompose(options={}){
  if($('reader-dialog').open)closeReader();
@@ -75,23 +76,23 @@ function openCompose(options={}){
  const existing=edit?state.drafts.find(d=>d.editingId===edit.id):null;
  const now=new Date().toISOString(),id=crypto.randomUUID();
  composing=options.draft?{...options.draft}:existing?{...existing}:edit?{...recordFrom(edit),id,editingId:edit.id,baseRevision:edit.revision||0}: {id,threadId:parent?.threadId||id,parentId:parent?.id,parentTitle:parent?.title,title:parent?(parent.title+'에 부치는 답장').slice(0,80):'',sender:state.settings.penName||parent?.recipient||'',recipient:parent?.sender||'',body:'',season:parent?.season||currentSeason(),createdAt:now,updatedAt:now,revision:0};
- $('compose-title').textContent=composing.editingId?'쓴 편지를 다듬습니다.':options.draft?'쓰던 마음을 이어 씁니다.':parent||composing.parentId?'답장을 한 통 씁니다.':'편지 한 통을 씁니다.';
+ $('compose-title').textContent=composing.editingId?'쓴 편지를 다듬습니다.':options.draft?'쓰던 마음을 이어 씁니다.':parent||composing.parentId?'답장을 한 통 씁니다.':'그리운 이에게 씁니다.';
  for(const field of ['sender','recipient','season','body'])$('compose-'+field).value=composing[field]||'';
  $('compose-subject').value=composing.title;
  $('reply-context').classList.toggle('hidden',!composing.parentId);
  $('reply-context').textContent=composing.parentId?'「'+composing.parentTitle+'」에 이어 쓰는 편지입니다. 앞선 편지 내용은 새 링크에 포함되지 않습니다.':'';
  $('edit-context').classList.toggle('hidden',!composing.editingId);
- $('edit-context').textContent='저장하면 내 서고의 편지가 수정됩니다. 이미 전달한 링크는 바뀌지 않으니, 수정한 편지는 새 링크로 전해 주세요.';
+ $('edit-context').textContent='저장하면 내 서고의 편지가 수정됩니다. 이미 전달한 링크는 바뀌지 않으니, 수정한 편지는 새 링크로 전해 주세요.'+(composing.entrustedAt?' 수정한 마음에는 무명의 인장을 다시 남길 수 있습니다.':'');
  $('save-letter').textContent=composing.editingId?'수정 내용 저장':'서고에 보관';
  $('seal-and-share').textContent=composing.editingId?'수정하고 새 링크 만들기 ↗':'편지 링크 만들기 ↗';
- $('draft-status').textContent='쓰던 마음은 이 브라우저에 임시 보관됩니다.';
+ $('draft-status').textContent='접어 둔 마음은 이 브라우저에 임시 보관됩니다.';
  updateCount();showDialog($('compose-dialog'));
  (!composing.sender?$('compose-sender'):!composing.recipient?$('compose-recipient'):$('compose-body')).focus();
 }
 function composeRecord(){return {...composing,title:$('compose-subject').value.trim(),sender:$('compose-sender').value.trim(),recipient:$('compose-recipient').value.trim(),body:$('compose-body').value,season:$('compose-season').value,updatedAt:new Date().toISOString()}}
 function updateCount(){$('char-count').textContent=$('compose-body').value.length.toLocaleString('ko-KR')+' / 6,000'}
 function saveDraft(announce=false){clearTimeout(draftTimer);if(!composing)return true;const record=composeRecord();if(!record.title&&!record.body.trim()&&!record.sender&&!record.recipient)return true;const ok=commit(()=>{const index=state.drafts.findIndex(l=>l.id===record.id);if(index<0)state.drafts.push(record);else state.drafts[index]=record});$('draft-status').textContent=ok?'쓰던 편지를 이 브라우저에 보관했습니다.':'저장하지 못했습니다. 이 창을 닫기 전에 내용을 복사해 주세요.';if(ok){renderCards();if(announce)toast('쓰던 편지를 서고에 보관했습니다.')}return ok}
-async function finishCompose(share){
+async function finishCompose(share,entrust=false){
  if(sealing||!composing||!$('compose-form').reportValidity())return;
  const draft=composeRecord();
  if(!draft.body.trim()){toast('빈 종이에 마음을 조금 적어 주세요.');$('compose-body').focus();return}
@@ -99,12 +100,14 @@ async function finishCompose(share){
  if(draft.editingId&&!original){toast('수정할 원본 편지를 찾지 못했습니다. 원고를 백업해 주세요.');return}
  if(original&&(original.revision||0)!==(draft.baseRevision||0)){toast('원본이 변경되었습니다. 원고를 보관한 뒤 최신 편지를 다시 열어 주세요.');return}
  const record=recordFrom({...draft,id:original?.id||draft.id,createdAt:original?.createdAt||draft.createdAt,revision:original?(original.revision||0)+1:0});record.direction='written';
+ if(original)delete record.entrustedAt;
+ if(entrust)record.entrustedAt=new Date().toISOString();
  sealing=true;
  try{
   clearTimeout(draftTimer);
   if(!commit(()=>{const index=state.mail.findIndex(l=>l.id===record.id);if(index<0)state.mail.push(record);else state.mail[index]=record;state.drafts=state.drafts.filter(d=>d.id!==draft.id);state.progress[record.id]=0;if(!state.settings.penName)state.settings.penName=record.sender}))return;
   composing=null;$('compose-dialog').close();selectFilter('written');openLetter(asLetter(record));toast(original?'편지의 수정 내용을 저장했습니다.':'편지를 서고에 간직했습니다.');
-  if(share)await openShare(current);
+  if(entrust)openMumyeong(current);else if(share)await openShare(current);
  }finally{sealing=false}
 }
 function wireRecord(letter){return {v:1,...recordFrom(letter)}}
@@ -119,18 +122,19 @@ async function loadIncoming(){
   const record=await decodeLetter(location.hash.slice(8));
   if(composing&&!saveDraft())return;
   composing=null;
-  for(const id of ['compose-dialog','share-dialog','settings-dialog','delete-dialog']){if($(id).open)$(id).close()}
+  for(const id of ['compose-dialog','share-dialog','settings-dialog','delete-dialog','mumyeong-dialog']){if($(id).open)$(id).close()}
   const known=state.mail.find(l=>l.id===record.id);
   if(known){
-   const same=['title','sender','recipient','body','threadId','parentId','parentTitle','season','createdAt'].every(k=>(known[k]||'')===(record[k]||''));
+   const sameContent=['title','sender','recipient','body','threadId','parentId','parentTitle','season','createdAt'].every(k=>(known[k]||'')===(record[k]||''));
+   const same=sameContent&&(known.entrustedAt||'')===(record.entrustedAt||'');
    if(same){openLetter(asLetter(known));return}
    if(known.threadId!==record.threadId)throw new Error('서고의 편지와 연결 정보가 다릅니다. 보낸 이에게 링크를 다시 요청해 주세요.');
-   if(known.direction==='received'&&record.revision>(known.revision||0)){
+   if(known.direction==='received'&&(record.revision>(known.revision||0)||sameContent&&record.revision===(known.revision||0)&&!known.entrustedAt&&!!record.entrustedAt)){
     record.direction='received';const incoming=asLetter(record);incoming._update=true;
     $('arrival-banner').textContent='수정된 편지가 도착했습니다. 내용을 읽고 「수정본으로 보관」을 누르면 서고의 편지가 바뀝니다.';
     $('arrival-banner').classList.remove('hidden');openLetter(incoming);return;
    }
-   if(known.direction==='written'||record.revision<(known.revision||0)){
+   if(known.direction==='written'||record.revision<(known.revision||0)||sameContent&&record.revision===(known.revision||0)&&!!known.entrustedAt&&!record.entrustedAt){
     record.direction=known.direction;const snapshot=asLetter(record);snapshot._snapshot=true;
     $('arrival-banner').textContent='이 링크에 담긴 내용을 펼쳤습니다. 내 서고에 보관한 최신 편지는 그대로 유지됩니다.';
     $('arrival-banner').classList.remove('hidden');openLetter(snapshot);return;
@@ -174,6 +178,36 @@ $('cancel-delete').addEventListener('click',()=>$('delete-dialog').close());
 $('confirm-delete').addEventListener('click',deleteConfirmed);
 $('delete-dialog').addEventListener('close',()=>{pendingDeletion=null;syncScroll()});
 
+
+function renderKeeper(){
+ const own=isKept()&&current.direction==='written';
+ const marked=!!current.entrustedAt;
+ $('keeper-record').classList.toggle('hidden',!own&&!marked);
+ $('keeper-record').classList.toggle('is-recorded',marked);
+ $('keeper-mark').classList.toggle('hidden',!marked);
+ $('keeper-record-text').textContent=marked?'무명이 기록한 마음 · '+shortDate(current.entrustedAt):'이 마음을 잊히지 않는 기록으로 남길까요?';
+ $('entrust-letter').classList.toggle('hidden',!own);
+ $('entrust-letter').textContent=marked?'무명의 인장 펼치기 ↗':'무명에게 맡기기 ↗';
+}
+function openMumyeong(letter){
+ $('mumyeong-subject').textContent=letter.sender+' → '+letter.recipient+' · 「'+letter.title+'」';
+ $('mumyeong-date').textContent=shortDate(letter.entrustedAt)+' · '+letter.recipient+'에게';
+ showDialog($('mumyeong-dialog'));
+}
+function entrustCurrent(){
+ const record=state.mail.find(l=>l.id===current?.id&&l.direction==='written');
+ if(!record||current._snapshot||current._update)return;
+ if(!record.entrustedAt){
+  const timestamp=new Date().toISOString();
+  if(!commit(()=>record.entrustedAt=timestamp))return;
+ }
+ current=asLetter(record);renderPage();renderCards();openMumyeong(current);
+}
+$('entrust-compose').addEventListener('click',()=>finishCompose(false,true));
+$('entrust-letter').addEventListener('click',entrustCurrent);
+$('close-mumyeong').addEventListener('click',()=>$('mumyeong-dialog').close());
+$('mumyeong-dialog').addEventListener('close',syncScroll);
+
 $('new-letter').addEventListener('click',()=>openCompose());$('write-from-archive').addEventListener('click',()=>openCompose());
 $('first-letter').addEventListener('click',()=>{const personal=[...state.mail].sort((a,b)=>b.createdAt.localeCompare(a.createdAt));const letter=personal[0]?asLetter(personal[0]):null;if(letter)openLetter(letter,$('first-letter'));else openCompose()});
 $('close-reader').addEventListener('click',closeReader);
@@ -183,7 +217,7 @@ $('previous').addEventListener('click',()=>{if(page>0){page--;renderPage()}});$(
 $('keep-letter').addEventListener('click',()=>{if(keepIncoming())toast('도착한 편지를 내 서고에 간직했습니다.')});
 $('bookmark').addEventListener('click',()=>{if(!keepIncoming())return;const marked=state.saved.includes(current.id);if(!commit(()=>{state.saved=marked?state.saved.filter(id=>id!==current.id):[...state.saved,current.id]}))return;renderPage();toast(marked?'편지에서 책갈피를 꺼냈습니다.':'이 마음에 책갈피를 끼웠습니다.')});
 $('reply-letter').addEventListener('click',()=>{if(!keepIncoming())return;openCompose({parent:current})});$('share-letter').addEventListener('click',()=>openShare(current));
-document.addEventListener('keydown',e=>{if(!$('reader-dialog').open||document.querySelector('#share-dialog[open]')||$('delete-dialog').open||e.altKey||e.ctrlKey||e.metaKey)return;if(e.key==='ArrowRight'&&page<current.pages.length-1){e.preventDefault();page++;renderPage()}if(e.key==='ArrowLeft'&&page>0){e.preventDefault();page--;renderPage()}});
+document.addEventListener('keydown',e=>{if(!$('reader-dialog').open||document.querySelector('#share-dialog[open]')||$('mumyeong-dialog').open||$('delete-dialog').open||e.altKey||e.ctrlKey||e.metaKey)return;if(e.key==='ArrowRight'&&page<current.pages.length-1){e.preventDefault();page++;renderPage()}if(e.key==='ArrowLeft'&&page>0){e.preventDefault();page--;renderPage()}});
 document.querySelectorAll('.filter').forEach(button=>button.addEventListener('click',()=>selectFilter(button.dataset.filter)));$('season-filter').addEventListener('change',()=>{season=$('season-filter').value;renderCards()});
 $('close-compose').addEventListener('click',()=>{if(saveDraft())$('compose-dialog').close()});$('compose-dialog').addEventListener('cancel',event=>{if(!saveDraft())event.preventDefault()});$('compose-dialog').addEventListener('close',()=>{clearTimeout(draftTimer);composing=null;syncScroll();renderCards()});
 $('compose-form').addEventListener('input',()=>{updateCount();$('draft-status').textContent='쓰던 마음을 보관하는 중…';clearTimeout(draftTimer);draftTimer=setTimeout(()=>saveDraft(),600)});
